@@ -9,6 +9,15 @@ LR         = 0.01 #@param {type:"number"}
 
 # Fill in the initialisation and forward method the GCNLayer below
 
+def update_stats(training_stats, epoch_stats):
+    if training_stats is None:
+        training_stats = {}
+        for key in epoch_stats.keys():
+            training_stats[key] = []
+    for key, val in epoch_stats.items():
+        training_stats[key].append(val)
+    return training_stats
+
 class GCNLayer(Module):
     """Graph Convolutional Network layer from Kipf & Welling.
 
@@ -63,11 +72,12 @@ def train_gnn_cora(X, y, mask, model, optimiser):
 
 def evaluate_gnn_cora(X, y, mask, model):
     model.eval()
-    y_hat = model(X)[mask]
-    y_hat = y_hat.data.max(1)[1]
-    num_correct = y_hat.eq(y.data).sum()
-    num_total = len(y)
-    accuracy = 100.0 * (num_correct/num_total)
+    with torch.no_grad():
+        y_hat = model(X)[mask]
+        y_hat = y_hat.data.max(1)[1]
+        num_correct = y_hat.eq(y.data).sum()
+        num_total = len(y)
+        accuracy = 100.0 * (num_correct/num_total)
     return accuracy
 
 
