@@ -125,5 +125,6 @@ def load_dataset(name, split="full", device="cpu"):
         'train_y': train_y.to(device),
         'valid_y': valid_y.to(device),
         'test_y': test_y.to(device),
-        'num_classes': dataset.num_classes
+        'num_classes': dataset.num_classes,
+        'edge_index': dataset.data.edge_index.to(device)
     }
