@@ -76,7 +76,7 @@ class SparseGAT(nn.Module):
         for i, layer in enumerate(self.layers):
             h = layer(h)
             if i < len(self.layers) - 1:
-                h = F.elu(h)
+                h = F.relu(h)
             if return_hidden:
                 hidden_states.append(h)
         
