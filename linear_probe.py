@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def linear_probing(model, x, y_true, train_mask, test_mask,num_classes):  # ← 添加 test_mask
+def linear_probing(model, x, y_true, train_mask, test_mask, num_classes):
     model.eval()
     with torch.no_grad():
         _, hidden_states = model(x, return_hidden=True)
@@ -14,7 +14,7 @@ def linear_probing(model, x, y_true, train_mask, test_mask,num_classes):  # ← 
         h_k = h_k.detach()
 
         # Create probe
-        probe = nn.Linear(h_k.shape[1], num_classes).to(h_k.device)  #
+        probe = nn.Linear(h_k.shape[1], num_classes).to(h_k.device)
         optimizer = torch.optim.Adam(probe.parameters(), lr=0.01)
 
         # Train probe
@@ -27,18 +27,23 @@ def linear_probing(model, x, y_true, train_mask, test_mask,num_classes):  # ← 
 
         # Evaluate probe
         with torch.no_grad():
-            probs = F.softmax(probe(h_k[test_mask]), dim=1)  # ← 只对测试集
+            probs = F.softmax(probe(h_k[test_mask]), dim=1)
             entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1).mean()
 
             preds = probs.argmax(dim=1)
-            accuracy = (preds == y_true[test_mask]).float().mean().item() * 100  # ← 只对测试集
+            accuracy = (preds == y_true[test_mask]).float().mean().item() * 100
+
+            # Mean negative log-probability of the true class
+            p_correct = probs[range(len(y_true[test_mask])), y_true[test_mask]]
+            mean_neg_log_p = -torch.log(p_correct + 1e-8).mean().item()
 
         results.append({
             'layer': k,
             'entropy': entropy.item(),
-            'accuracy': accuracy
+            'accuracy': accuracy,
+            'mean_neg_log_p': mean_neg_log_p
         })
-        print(f"Layer {k}: entropy = {entropy:.4f}, accuracy = {accuracy:.2f}%")
+        print(f"Layer {k}: entropy = {entropy:.4f}, accuracy = {accuracy:.2f}%, -log p(a*) = {mean_neg_log_p:.4f}")
 
     return results
 
