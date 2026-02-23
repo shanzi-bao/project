@@ -115,7 +115,7 @@ def linear_probing_trace_final(model, x, y_true, train_mask, test_mask, num_clas
 
 
 
-    # 加到 linear_probe.py 末尾
+    
 
 def linear_probing_auc(model, x, y_true, train_mask, test_mask, num_classes):
     """
@@ -158,10 +158,18 @@ def linear_probing_auc(model, x, y_true, train_mask, test_mask, num_classes):
             probs = F.softmax(probes[k](h_k[test_mask]), dim=1)
             node_entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=1)
 
+            p_true = probs[range(len(y_true[test_mask])), y_true[test_mask]]
+            neg_log_p_true = -torch.log(p_true + 1e-8)
+
+            preds_k = probs.argmax(dim=1)
+            per_layer_correct = (preds_k == y_true[test_mask]).cpu().numpy()
+
         results.append({
             'layer': k,
             'entropy_per_node': node_entropy.cpu().numpy(),
+            'neg_log_p_true_per_node': neg_log_p_true.cpu().numpy(),
             'final_correct_mask': final_correct_mask,
+            'per_layer_correct_mask': per_layer_correct,
         })
 
         h_c = node_entropy.cpu().numpy()[final_correct_mask].mean()
