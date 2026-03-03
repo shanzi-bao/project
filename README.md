@@ -33,9 +33,9 @@ We study predictive entropy from layer-wise linear probes as a practical diagnos
 
 | Dataset | Nodes | Classes | Split |
 |---------|-------|---------|-------|
-| Cora | 2,708 | 7 | Planetoid (140/500/1000) |
-| PubMed | 19,717 | 3 | Planetoid (60/500/1000) |
-| Synthetic (h=0.9/0.5/0.1) | 500 | 5 | GraphUniverse |
+| Cora | 2,708 | 7 | Planetoid full (1208/500/1000) |
+| PubMed | 19,717 | 3 | Planetoid full (18217/500/1000) |
+| Synthetic (h=0.9/0.5/0.1) | 500 | 10 | 300/100/100 |
 
 ## Results
 
