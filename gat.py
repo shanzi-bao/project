@@ -1,8 +1,10 @@
+# gat.py - GAT model and training utilities
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import Adam
-from torch.nn import Module, ModuleList
+from torch_geometric.utils import add_self_loops
 
 NUM_EPOCHS = 100
 LR = 0.01
@@ -18,89 +20,94 @@ def update_stats(training_stats, epoch_stats):
     return training_stats
 
 
-class GATLayer(Module):
-    def __init__(self, input_dim, output_dim, A, num_heads=1, concat=True):
-        super(GATLayer, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
+# ============================================================
+# Model
+# ============================================================
+
+class GATLayer(nn.Module):
+    def __init__(self, in_features, out_features, edge_index, num_heads=1, concat=True):
+        super().__init__()
         self.num_heads = num_heads
+        self.out_features = out_features
         self.concat = concat
-        
-        A_tilde = (A > 0).to(dtype=torch.float32, device=A.device)
-        A_tilde = A_tilde + torch.eye(A.size(0), device=A.device)
-        self.register_buffer('adj', A_tilde)
-        
-        self.W = nn.ModuleList([
-            nn.Linear(input_dim, output_dim, bias=False) for _ in range(num_heads)
-        ])
-        
-        self.a = nn.ParameterList([
-            nn.Parameter(torch.zeros(2 * output_dim, 1)) for _ in range(num_heads)
-        ])
-        
-        for a in self.a:
-            nn.init.xavier_uniform_(a.view(1, -1))
-        
-        self.leaky_relu = nn.LeakyReLU(0.2)
-    
-    def forward(self, x):
-        outputs = []
-        
-        for head in range(self.num_heads):
-            h = self.W[head](x)
-            N = h.size(0)
-            
-            a_input_i = h.unsqueeze(1).repeat(1, N, 1)
-            a_input_j = h.unsqueeze(0).repeat(N, 1, 1)
-            a_input = torch.cat([a_input_i, a_input_j], dim=2)
-            
-            e = self.leaky_relu(torch.matmul(a_input, self.a[head]).squeeze(-1))
-            
-            zero_vec = -1e9 * torch.ones_like(e)
-            attention = torch.where(self.adj > 0, e, zero_vec)
-            attention = F.softmax(attention, dim=1)
-            
-            h_prime = torch.matmul(attention, h)
-            outputs.append(h_prime)
-        
+
+        self.register_buffer('edge_index', edge_index)
+
+        self.W = nn.Linear(in_features, out_features * num_heads, bias=False)
+        self.a_src = nn.Parameter(torch.zeros(num_heads, out_features))
+        self.a_dst = nn.Parameter(torch.zeros(num_heads, out_features))
+        nn.init.xavier_uniform_(self.W.weight)
+        nn.init.xavier_uniform_(self.a_src.unsqueeze(0))
+        nn.init.xavier_uniform_(self.a_dst.unsqueeze(0))
+
+    def forward(self, h):
+        N = h.size(0)
+        src, dst = self.edge_index
+
+        h = self.W(h).view(N, self.num_heads, self.out_features)
+
+        e_src = (h[src] * self.a_src).sum(dim=-1)
+        e_dst = (h[dst] * self.a_dst).sum(dim=-1)
+        e = F.leaky_relu(e_src + e_dst, 0.2)
+
+        e_max = torch.zeros(N, self.num_heads, device=h.device)
+        e_max.scatter_reduce_(0, dst.unsqueeze(1).expand_as(e), e, reduce='amax', include_self=False)
+        e = torch.exp(e - e_max[dst])
+
+        e_sum = torch.zeros(N, self.num_heads, device=h.device)
+        e_sum.scatter_add_(0, dst.unsqueeze(1).expand_as(e), e)
+        alpha = e / (e_sum[dst] + 1e-16)
+
+        msg = h[src] * alpha.unsqueeze(-1)
+        out = torch.zeros(N, self.num_heads, self.out_features, device=h.device)
+        out.scatter_add_(0, dst.unsqueeze(1).unsqueeze(2).expand_as(msg), msg)
+
         if self.concat:
-            return torch.cat(outputs, dim=1)
+            return out.view(N, self.num_heads * self.out_features)
         else:
-            return torch.mean(torch.stack(outputs), dim=0)
+            return out.mean(dim=1)
 
 
-class SimpleGAT(Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, num_gat_layers, A, num_heads=4):
-        super(SimpleGAT, self).__init__()
+class GAT(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_gat_layers, edge_index, num_heads=4):
+        super().__init__()
         self.num_gat_layers = num_gat_layers
-        
-        if num_gat_layers > 1:
-            self.gat_layers = [GATLayer(input_dim, hidden_dim, A, num_heads=num_heads, concat=True)]
-            
-            for _ in range(num_gat_layers - 2):
-                self.gat_layers.append(GATLayer(hidden_dim * num_heads, hidden_dim, A, num_heads=num_heads, concat=True))
-            
-            self.gat_layers.append(GATLayer(hidden_dim * num_heads, output_dim, A, num_heads=1, concat=False))
-        else:
-            self.gat_layers = [GATLayer(input_dim, output_dim, A, num_heads=1, concat=False)]
-        
-        self.gat_layers = ModuleList(self.gat_layers)
-    
-    def forward(self, x, return_hidden=False):
-        hidden_states = [x]
-        
-        for i in range(self.num_gat_layers - 1):
-            x = self.gat_layers[i](x)
-            x = F.relu(x)
-            hidden_states.append(x)
-        
-        x = self.gat_layers[-1](x)
-        hidden_states.append(x)
-        
-        if return_hidden:
-            return x, hidden_states
-        return x
 
+        edge_index, _ = add_self_loops(edge_index, num_nodes=None)
+
+        self.layers = nn.ModuleList()
+
+        if num_gat_layers == 1:
+            self.layers.append(GATLayer(input_dim, output_dim, edge_index,
+                                         num_heads=1, concat=False))
+        else:
+            self.layers.append(GATLayer(input_dim, hidden_dim, edge_index,
+                                         num_heads=num_heads, concat=True))
+            for _ in range(num_gat_layers - 2):
+                self.layers.append(GATLayer(hidden_dim * num_heads, hidden_dim, edge_index,
+                                             num_heads=num_heads, concat=True))
+            self.layers.append(GATLayer(hidden_dim * num_heads, output_dim, edge_index,
+                                         num_heads=1, concat=False))
+
+    def forward(self, x, return_hidden=False):
+        hidden_states = [x] if return_hidden else None
+
+        h = x
+        for i, layer in enumerate(self.layers):
+            h = layer(h)
+            if i < len(self.layers) - 1:
+                h = F.relu(h)
+            if return_hidden:
+                hidden_states.append(h)
+
+        if return_hidden:
+            return h, hidden_states
+        return h
+
+
+# ============================================================
+# Training utilities
+# ============================================================
 
 def train_gat(X, y, mask, model, optimiser):
     model.train()
@@ -128,18 +135,19 @@ def train_eval_loop_gat(model, train_x, train_y, train_mask,
                         test_x, test_y, test_mask):
     optimiser = Adam(model.parameters(), lr=LR)
     training_stats = None
-    
+
     for epoch in range(NUM_EPOCHS):
         train_loss = train_gat(train_x, train_y, train_mask, model, optimiser)
         train_acc = evaluate_gat(train_x, train_y, train_mask, model)
         valid_acc = evaluate_gat(valid_x, valid_y, valid_mask, model)
-        
+
         if epoch % 10 == 0:
-            print(f"Epoch {epoch} with train loss: {train_loss:.3f} train accuracy: {train_acc:.3f} validation accuracy: {valid_acc:.3f}")
-        
+            print(f"Epoch {epoch} with train loss: {train_loss:.3f} "
+                  f"train accuracy: {train_acc:.3f} validation accuracy: {valid_acc:.3f}")
+
         epoch_stats = {'train_acc': train_acc, 'val_acc': valid_acc, 'epoch': epoch}
         training_stats = update_stats(training_stats, epoch_stats)
-    
+
     test_acc = evaluate_gat(test_x, test_y, test_mask, model)
-    print(f"Our final test accuracy for the SimpleGAT is: {test_acc:.3f}")
+    print(f"Test accuracy: {test_acc:.3f}")
     return training_stats
