@@ -1,6 +1,5 @@
-# Entropy Dynamics as a Diagnostic of Information Accumulation in Graph Neural Networks
 
-Code and results for the L65 Mini-Project.
+Code and results for the Mini-Project.
 
 ## Overview
 
