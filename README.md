@@ -13,7 +13,7 @@ We study predictive entropy from layer-wise linear probes as a practical diagnos
 ├── my_datasets.py          # Cora/PubMed loader (Planetoid splits)
 ├── synthetic_dataset.py    # GraphUniverse synthetic graph loader
 ├── plot_multiseeds.py      # Multi-seed aggregation and plotting utilities
-├── 1.ipynb                 # Main experiment notebook
+├── Experiment.ipynb                 # Main experiment notebook
 ├── graphuniverse/          # Synthetic graphs (homophily 0.9, 0.5, 0.1)
 └── results/                # All experimental results (pkl) and figures (png)
     ├── gcn_h32_cora/
