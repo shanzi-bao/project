@@ -92,6 +92,29 @@ class PubMedDataset(object):
         return to_dense_adj(self.data.edge_index)[0]
 
 
+
+from torch_geometric.datasets import HeterophilousGraphDataset
+
+class AmazonRatingsDataset(object):
+    def __init__(self):
+        dataset = HeterophilousGraphDataset(root='/tmp/AmazonRatings', name='Amazon-ratings')
+        self.data = dataset[0]
+        self.train_mask = self.data.train_mask[:, 0]
+        self.valid_mask = self.data.val_mask[:, 0]
+        self.test_mask = self.data.test_mask[:, 0]
+        self.num_classes = dataset.num_classes
+
+    def get_fullx(self):
+        return self.data.x
+
+    def get_labels(self):
+        return self.data.y
+
+    def get_adjacency_matrix(self):
+        from torch_geometric.utils import to_dense_adj
+        return to_dense_adj(self.data.edge_index)[0]
+
+
 def load_dataset(name, split="full", device="cpu"):
     """
     Load dataset and move to device
@@ -110,6 +133,8 @@ def load_dataset(name, split="full", device="cpu"):
         dataset = CiteSeerDataset(split=split)
     elif name.lower() == 'pubmed':
         dataset = PubMedDataset(split=split)
+    elif name.lower() == 'amazon-ratings':
+        dataset = AmazonRatingsDataset()
     else:
         raise ValueError(f"Unknown dataset: {name}")
 
